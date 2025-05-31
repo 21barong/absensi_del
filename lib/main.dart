@@ -765,12 +765,15 @@ class StatusPage extends StatefulWidget {
   State<StatusPage> createState() => _StatusPageState();
 }
 
+// ... di dalam _StatusPageState
 class _StatusPageState extends State<StatusPage> {
   final TextEditingController _nimController = TextEditingController();
-  List<Map<String, String>> _attendanceHistory =
-      []; // Placeholder for attendance data
+  List<Map<String, String>> _attendanceHistory = [];
+  final FirebaseFirestore _firestore =
+      FirebaseFirestore.instance; // Inisialisasi Firestore
+  bool _isLoadingStatus = false;
 
-  void _searchAttendance() {
+  Future<void> _searchAttendance() async {
     final nim = _nimController.text.trim();
     if (nim.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -779,32 +782,73 @@ class _StatusPageState extends State<StatusPage> {
       return;
     }
 
-    // TODO: Implement logic to fetch attendance data from your backend/database
-    // This is just dummy data for demonstration
     setState(() {
-      _attendanceHistory = [
-        {'date': '2025-05-30', 'time_in': '08:00', 'time_out': '16:00'},
-        {'date': '2025-05-29', 'time_in': '08:05', 'time_out': '15:55'},
-        {
-          'date': '2025-05-28',
-          'time_in': '07:58',
-          'time_out': '-',
-        }, // Contoh belum absen keluar
-        {'date': '2025-05-27', 'time_in': '08:10', 'time_out': '17:00'},
-      ];
+      _isLoadingStatus = true;
+      _attendanceHistory = []; // Clear previous results
     });
 
-    if (_attendanceHistory.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Tidak ada riwayat kehadiran untuk NIM: $nim')),
-      );
-    }
-  }
+    try {
+      // Ambil data kehadiran dari Firestore
+      final querySnapshot = await _firestore
+          .collection('attendance')
+          .where('nim', isEqualTo: nim)
+          .orderBy('timestamp', descending: true)
+          .get();
 
-  @override
-  void dispose() {
-    _nimController.dispose();
-    super.dispose();
+      // Kelompokkan berdasarkan tanggal untuk masuk/keluar
+      Map<String, Map<String, String>> dailyAttendance = {};
+      for (var doc in querySnapshot.docs) {
+        final data = doc.data();
+        final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
+        if (timestamp == null) continue;
+
+        final dateStr = DateFormat('yyyy-MM-dd').format(timestamp);
+        final timeStr = DateFormat('HH:mm').format(timestamp);
+        final type = data['type'] as String;
+
+        if (!dailyAttendance.containsKey(dateStr)) {
+          dailyAttendance[dateStr] = {
+            'date': dateStr,
+            'time_in': '-',
+            'time_out': '-',
+          };
+        }
+
+        if (type == 'masuk') {
+          // Hanya simpan jam masuk pertama untuk hari itu
+          if (dailyAttendance[dateStr]!['time_in'] == '-') {
+            dailyAttendance[dateStr]!['time_in'] = timeStr;
+          }
+        } else if (type == 'keluar') {
+          // Hanya simpan jam keluar terakhir untuk hari itu
+          dailyAttendance[dateStr]!['time_out'] = timeStr;
+        }
+      }
+
+      setState(() {
+        _attendanceHistory = dailyAttendance.values.toList()
+          ..sort(
+            (a, b) => b['date']!.compareTo(a['date']!),
+          ); // Urutkan dari terbaru
+      });
+
+      if (_attendanceHistory.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Tidak ada riwayat kehadiran untuk NIM: $nim'),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error fetching attendance: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gagal mengambil data kehadiran: $e')),
+      );
+    } finally {
+      setState(() {
+        _isLoadingStatus = false;
+      });
+    }
   }
 
   @override
@@ -824,15 +868,26 @@ class _StatusPageState extends State<StatusPage> {
                 labelText: 'Masukkan NIM',
                 hintText: 'Masukkan NIM',
                 border: const OutlineInputBorder(),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.search),
-                  onPressed: _searchAttendance,
-                ),
+                suffixIcon: _isLoadingStatus
+                    ? const Padding(
+                        padding: EdgeInsets.all(8.0),
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : IconButton(
+                        icon: const Icon(Icons.search),
+                        onPressed: _searchAttendance,
+                      ),
               ),
               keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 20),
-            if (_attendanceHistory.isEmpty)
+            if (_isLoadingStatus)
+              const CircularProgressIndicator()
+            else if (_attendanceHistory.isEmpty &&
+                _nimController.text.isNotEmpty)
+              const Text("Data kehadiran tidak ditemukan.")
+            else if (_attendanceHistory
+                .isEmpty) // Default state when nothing is searched yet
               Column(
                 children: [
                   const Icon(
