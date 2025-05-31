@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "586457273274",
+    "project_id": "absensi-del",
+    "storage_bucket": "absensi-del.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:586457273274:android:534d0e2044179c5bb10383",
+        "android_client_info": {
+          "package_name": "com.example.absensi_del"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA13Xzg71UQaNWt4fRUQP3j5Hl6E_P1Dns"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
