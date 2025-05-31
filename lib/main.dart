@@ -1,4 +1,5 @@
 import 'package:absensi_del/firebase_options.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -275,6 +276,7 @@ class _RegisterPageState extends State<RegisterPage> {
   File? _imageFile;
   String? _detectedFaceToken;
   bool _isLoading = false;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   final FaceRecognitionService _faceService = FaceRecognitionService();
   final ImagePicker _picker = ImagePicker();
@@ -318,23 +320,30 @@ class _RegisterPageState extends State<RegisterPage> {
         userId,
       );
 
-      setState(() {
-        _isLoading = false;
-      });
-
       if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Mahasiswa berhasil didaftarkan!')),
-        );
-        // Reset form
+        try {
+          // Simpan data mahasiswa ke Firestore
+          await _firestore.collection('students').doc(userId).set({
+            'nim': userId,
+            'face_token': _detectedFaceToken, // Simpan juga face_token
+            'registration_date': FieldValue.serverTimestamp(),
+          });
 
-        _nimController.clear();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Mahasiswa berhasil didaftarkan!')),
+          );
 
-        setState(() {
-          _imageFile = null;
-          _detectedFaceToken = null;
-        });
-        // TODO: Simpan data mahasiswa ke database lokal/server
+          _nimController.clear();
+          setState(() {
+            _imageFile = null;
+            _detectedFaceToken = null;
+          });
+        } catch (e) {
+          print('Error saving student data to Firestore: $e');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Gagal menyimpan data mahasiswa: $e')),
+          );
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -342,20 +351,11 @@ class _RegisterPageState extends State<RegisterPage> {
           ),
         );
       }
-    } else if (_imageFile == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Mohon ambil foto wajah terlebih dahulu.'),
-        ),
-      );
-    } else if (_detectedFaceToken == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Wajah belum terdeteksi. Pastikan wajah terlihat jelas.',
-          ),
-        ),
-      );
+      setState(() {
+        _isLoading = false;
+      });
+    } else {
+      // ... pesan error lainnya
     }
   }
 
@@ -497,6 +497,7 @@ class _ScanPageState extends State<ScanPage> {
   String? _detectedFaceToken;
   bool _isLoading = false;
   String _scanMessage = '';
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   final FaceRecognitionService _faceService = FaceRecognitionService();
   final ImagePicker _picker = ImagePicker();
@@ -537,6 +538,22 @@ class _ScanPageState extends State<ScanPage> {
             ScaffoldMessenger.of(
               context,
             ).showSnackBar(SnackBar(content: Text(_scanMessage)));
+            try {
+              await _firestore.collection('attendance').add({
+                'nim': userId,
+                'timestamp': FieldValue.serverTimestamp(),
+                'type': _currentAttendanceType == AttendanceType.masuk
+                    ? 'masuk'
+                    : 'keluar',
+                'confidence': confidence, // Simpan confidence juga
+              });
+              print('Attendance recorded for $userId');
+            } catch (e) {
+              print('Error recording attendance: $e');
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Gagal mencatat kehadiran: $e')),
+              );
+            }
             // TODO: Simpan data kehadiran (user_id, waktu, jenis_kehadiran) ke database
           } else {
             setState(() {
