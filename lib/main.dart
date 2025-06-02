@@ -78,54 +78,55 @@ class _MainScreenState extends State<MainScreen> {
 
 // --- Face++ API Service ---
 class FaceRecognitionService {
-  final String apiKey =
-      'YB0YrYM2Z-nBzB33RMk8fNCeVCx-Z_au'; // GANTI DENGAN API KEY ANDA
-  final String apiSecret =
-      'qrSlTO4fhEGC0TxoRS0izzGwVcvusFZO'; // GANTI DENGAN API SECRET ANDA
-  String? _facesetToken; // Disimpan sementara di memori
+  final String apiKey = 'YB0YrYM2Z-nBzB33RMk8fNCeVCx-Z_au';
+  final String apiSecret = 'qrSlTO4fhEGC0TxoRS0izzGwVcvusFZO';
+  String? _facesetToken; // Cache token in memory
 
-  // Singleton pattern (opsional, bisa juga dibuat instance baru setiap kali)
   static final FaceRecognitionService _instance =
       FaceRecognitionService._internal();
   factory FaceRecognitionService() => _instance;
   FaceRecognitionService._internal();
 
-  // Mendapatkan FaceSet Token (atau membuat jika belum ada)
+  // Save or retrieve faceset token from persistent storage
   Future<String?> getOrCreateFaceSetToken() async {
-    if (_facesetToken != null) {
+    if (_facesetToken != null) return _facesetToken;
+
+    // Check persistent storage first (e.g., SharedPreferences or Firestore)
+    final tokenFromStorage = await _loadFaceSetTokenFromFirestore();
+    if (tokenFromStorage != null) {
+      _facesetToken = tokenFromStorage;
       return _facesetToken;
     }
 
-    // Coba dapatkan semua FaceSet
-    final uriGetAll = Uri.parse(
-      'https://api-us.faceplusplus.com/facepp/v3/faceset/getdetail',
+    // Try to get all facesets
+    final listUri = Uri.parse(
+      'https://api-us.faceplusplus.com/facepp/v3/faceset/getfacesets',
     );
-    final responseGetAll = await http.post(
-      uriGetAll,
+    final responseList = await http.post(
+      listUri,
       body: {'api_key': apiKey, 'api_secret': apiSecret},
     );
 
-    if (responseGetAll.statusCode == 200) {
-      final data = jsonDecode(responseGetAll.body);
-      if (data['facesets'] != null) {
-        for (var fs in data['facesets']) {
+    if (responseList.statusCode == 200) {
+      final data = jsonDecode(responseList.body);
+      final facesets = data['facesets'] as List<dynamic>?;
+      if (facesets != null) {
+        for (var fs in facesets) {
           if (fs['display_name'] == 'AttendanceAppSet') {
             _facesetToken = fs['faceset_token'];
-            print('Existing FaceSet found: $_facesetToken');
+            await _saveFaceSetTokenToFirestore(_facesetToken!);
             return _facesetToken;
           }
         }
       }
-    } else {
-      print('Failed to get all facesets: ${responseGetAll.body}');
     }
 
-    // Jika tidak ada atau gagal mendapatkan, buat FaceSet baru
-    final uriCreate = Uri.parse(
+    // Create new faceset if not found
+    final createUri = Uri.parse(
       'https://api-us.faceplusplus.com/facepp/v3/faceset/create',
     );
     final responseCreate = await http.post(
-      uriCreate,
+      createUri,
       body: {
         'api_key': apiKey,
         'api_secret': apiSecret,
@@ -136,10 +137,10 @@ class FaceRecognitionService {
     if (responseCreate.statusCode == 200) {
       final data = jsonDecode(responseCreate.body);
       _facesetToken = data['faceset_token'];
-      print('FaceSet Created: $_facesetToken');
+      await _saveFaceSetTokenToFirestore(_facesetToken!);
       return _facesetToken;
     } else {
-      print('Create FaceSet failed: ${responseCreate.body}');
+      print('FaceSet creation failed: ${responseCreate.body}');
       return null;
     }
   }
@@ -160,22 +161,14 @@ class FaceRecognitionService {
       final data = jsonDecode(response.body);
       if (data['faces'] != null && data['faces'].isNotEmpty) {
         return data['faces'][0]['face_token'];
-      } else {
-        print('No face detected.');
-        return null;
       }
-    } else {
-      print('Detect failed: ${response.body}');
-      return null;
     }
+    return null;
   }
 
   Future<bool> addFace(String faceToken, String userId) async {
     final facesetToken = await getOrCreateFaceSetToken();
-    if (facesetToken == null) {
-      print('Failed to get or create faceset token.');
-      return false;
-    }
+    if (facesetToken == null) return false;
 
     final uri = Uri.parse(
       'https://api-us.faceplusplus.com/facepp/v3/faceset/addface',
@@ -193,16 +186,10 @@ class FaceRecognitionService {
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
       if (data['face_added'] == 1) {
-        // Set user_id immediately after adding face
         return await setUserId(faceToken, userId);
-      } else {
-        print('Face not added: ${response.body}');
-        return false;
       }
-    } else {
-      print('Add Face failed: ${response.body}');
-      return false;
     }
+    return false;
   }
 
   Future<bool> setUserId(String faceToken, String userId) async {
@@ -218,22 +205,12 @@ class FaceRecognitionService {
         'user_id': userId,
       },
     );
-
-    if (response.statusCode == 200) {
-      print('User ID "$userId" set for face "$faceToken"');
-      return true;
-    } else {
-      print('Set user_id failed: ${response.body}');
-      return false;
-    }
+    return response.statusCode == 200;
   }
 
   Future<Map<String, dynamic>?> searchFace(String faceToken) async {
     final facesetToken = await getOrCreateFaceSetToken();
-    if (facesetToken == null) {
-      print('Failed to get or create faceset token.');
-      return null;
-    }
+    if (facesetToken == null) return null;
 
     final uri = Uri.parse('https://api-us.faceplusplus.com/facepp/v3/search');
     final response = await http.post(
@@ -243,22 +220,36 @@ class FaceRecognitionService {
         'api_secret': apiSecret,
         'face_token': faceToken,
         'faceset_token': facesetToken,
-        'return_result_count': '1', // Only need the top match
+        'return_result_count': '1',
       },
     );
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      if (data['results'] != null && data['results'].isNotEmpty) {
-        return data['results'][0];
-      } else {
-        print('No matching face found in FaceSet.');
-        return null;
+      final results = data['results'] as List<dynamic>?;
+      if (results != null && results.isNotEmpty) {
+        return results[0];
       }
-    } else {
-      print('Search failed: ${response.body}');
-      return null;
     }
+    return null;
+  }
+
+  Future<void> _saveFaceSetTokenToFirestore(String token) async {
+    final firestore = FirebaseFirestore.instance;
+    await firestore.collection('face_config').doc('config').set({
+      'faceset_token': token,
+    }, SetOptions(merge: true));
+  }
+
+  Future<String?> _loadFaceSetTokenFromFirestore() async {
+    final firestore = FirebaseFirestore.instance;
+    final snapshot = await firestore
+        .collection('face_config')
+        .doc('config')
+        .get();
+    return snapshot.exists && snapshot.data() != null
+        ? snapshot.data()!['faceset_token']
+        : null;
   }
 }
 
