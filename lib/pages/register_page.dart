@@ -1,11 +1,10 @@
-import 'package:flutter/material.dart';
 import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:absensi_del/services/face_recognition_service.dart';
 import 'package:absensi_del/widgets/face_detection_painter.dart';
 
-// --- Register Page ---
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
 
@@ -16,27 +15,35 @@ class RegisterPage extends StatefulWidget {
 class _RegisterPageState extends State<RegisterPage> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nimController = TextEditingController();
-  File? _imageFile;
-  String? _detectedFaceToken;
-  bool _isLoading = false;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   final FaceRecognitionService _faceService = FaceRecognitionService();
   final ImagePicker _picker = ImagePicker();
 
+  File? _imageFile;
+  String? _detectedFaceToken;
+  bool _isLoading = false;
+
+  // 📸 Ambil foto wajah & deteksi face token
   Future<void> _takePicture() async {
     final pickedFile = await _picker.pickImage(source: ImageSource.camera);
-    if (pickedFile != null) {
-      setState(() {
-        _imageFile = File(pickedFile.path);
-        _detectedFaceToken = null; // Reset face token
-        _isLoading = true;
-      });
+
+    if (pickedFile == null) return;
+
+    setState(() {
+      _imageFile = File(pickedFile.path);
+      _detectedFaceToken = null;
+      _isLoading = true;
+    });
+
+    try {
       final faceToken = await _faceService.detectFace(_imageFile!);
+
       setState(() {
         _detectedFaceToken = faceToken;
         _isLoading = false;
       });
+
       if (faceToken == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -44,62 +51,96 @@ class _RegisterPageState extends State<RegisterPage> {
           ),
         );
       }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Terjadi kesalahan saat mendeteksi wajah: $e')),
+      );
     }
   }
 
+  // 🔍 Cek apakah NIM sudah terdaftar
+  Future<bool> checkIfNIMExists(String nim) async {
+    final doc = await _firestore.collection('students').doc(nim).get();
+    return doc.exists;
+  }
+
+  // 🔍 Cek apakah wajah sudah pernah terdaftar
+  Future<bool> checkIfFaceExists(String faceToken) async {
+    final result = await _faceService.searchFace(faceToken);
+    return result != null &&
+        result['confidence'] != null &&
+        result['confidence'] > 85;
+  }
+
+  // 📝 Daftarkan Mahasiswa
   Future<void> _registerStudent() async {
-    if (_formKey.currentState!.validate() &&
-        _imageFile != null &&
-        _detectedFaceToken != null) {
-      setState(() {
-        _isLoading = true;
+    if (!_formKey.currentState!.validate() ||
+        _imageFile == null ||
+        _detectedFaceToken == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pastikan semua data dan wajah terisi.')),
+      );
+      return;
+    }
+
+    final String userId = _nimController.text.trim();
+
+    setState(() => _isLoading = true);
+
+    try {
+      // 1️⃣ Cek NIM
+      if (await checkIfNIMExists(userId)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('NIM ini sudah terdaftar.')),
+        );
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // 2️⃣ Cek wajah
+      if (await checkIfFaceExists(_detectedFaceToken!)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Wajah ini sudah terdaftar.')),
+        );
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // 3️⃣ Tambahkan wajah ke FaceSet
+      final success = await _faceService.addFace(_detectedFaceToken!, userId);
+
+      if (!success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Gagal mendaftarkan wajah. Coba lagi.')),
+        );
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // 4️⃣ Simpan ke Firestore
+      await _firestore.collection('students').doc(userId).set({
+        'nim': userId,
+        'face_token': _detectedFaceToken,
+        'registration_date': FieldValue.serverTimestamp(),
       });
 
-      final String userId = _nimController.text
-          .trim(); // Menggunakan NIM sebagai user_id
-
-      final bool success = await _faceService.addFace(
-        _detectedFaceToken!,
-        userId,
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Mahasiswa berhasil didaftarkan!')),
       );
 
-      if (success) {
-        try {
-          // Simpan data mahasiswa ke Firestore
-          await _firestore.collection('students').doc(userId).set({
-            'nim': userId,
-            'face_token': _detectedFaceToken, // Simpan juga face_token
-            'registration_date': FieldValue.serverTimestamp(),
-          });
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Mahasiswa berhasil didaftarkan!')),
-          );
-
-          _nimController.clear();
-          setState(() {
-            _imageFile = null;
-            _detectedFaceToken = null;
-          });
-        } catch (e) {
-          print('Error saving student data to Firestore: $e');
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Gagal menyimpan data mahasiswa: $e')),
-          );
-        }
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Gagal mendaftarkan wajah. Mohon coba lagi.'),
-          ),
-        );
-      }
+      _nimController.clear();
       setState(() {
-        _isLoading = false;
+        _imageFile = null;
+        _detectedFaceToken = null;
       });
-    } else {
-      // ... pesan error lainnya
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Terjadi kesalahan saat mendaftar: $e')),
+      );
     }
+
+    setState(() => _isLoading = false);
   }
 
   @override
@@ -141,9 +182,6 @@ class _RegisterPageState extends State<RegisterPage> {
                         children: [
                           Image.file(_imageFile!, fit: BoxFit.cover),
                           if (_detectedFaceToken != null)
-                            // Anda bisa menambahkan overlay untuk menunjukkan wajah terdeteksi
-                            // Ini adalah placeholder, deteksi wajah sebenarnya dari API tidak mengembalikan koordinat
-                            // Anda perlu memparsing 'face_rectangle' dari respons detect jika ingin menggambar kotak
                             Positioned.fill(
                               child: CustomPaint(
                                 painter: FaceDetectionPainter(
@@ -182,12 +220,11 @@ class _RegisterPageState extends State<RegisterPage> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Wajah terdeteksi: Posisikan wajah di tengah lingkaran dan pastikan pencahayaan cukup.',
+                'Wajah terdeteksi: Posisikan wajah di tengah kamera dan pastikan pencahayaan cukup.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
               const SizedBox(height: 20),
-              const SizedBox(height: 16),
               TextFormField(
                 controller: _nimController,
                 decoration: const InputDecoration(
@@ -196,14 +233,15 @@ class _RegisterPageState extends State<RegisterPage> {
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) {
-                  if (value == null || value.isEmpty) {
+                  if (value == null || value.trim().isEmpty) {
                     return 'NIM tidak boleh kosong';
+                  }
+                  if (!RegExp(r'^\d{8}$').hasMatch(value.trim())) {
+                    return 'NIM harus terdiri dari 8 digit angka';
                   }
                   return null;
                 },
               ),
-              const SizedBox(height: 16),
-
               const SizedBox(height: 24),
               ElevatedButton(
                 onPressed: _isLoading ? null : _registerStudent,

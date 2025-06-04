@@ -19,6 +19,7 @@ dependencies:
   cloud_firestore: ^4.17.3 # Untuk database Firestore
   firebase_auth: ^4.19.5 # Untuk autentikasi (opsional jika tidak pakai auth)
   geolocator: ^10.1.0
+  image: ^4.1.3
 
 
 
