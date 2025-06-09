@@ -29,7 +29,7 @@ class _ScanPageState extends State<ScanPage> {
 
   static const double kampusLat = 2.385682142007954;
   static const double kampusLng = 99.14797941517467;
-  static const double allowedRadius = 150.0; // dalam meter
+  static const double allowedRadius = 200.0; // dalam meter
 
   Future<Position> _getCurrentPosition() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();

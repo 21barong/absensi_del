@@ -16,6 +16,9 @@ class _RegisterPageState extends State<RegisterPage> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nimController = TextEditingController();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  // Tambahkan controller baru
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _prodiController = TextEditingController();
 
   final FaceRecognitionService _faceService = FaceRecognitionService();
   final ImagePicker _picker = ImagePicker();
@@ -121,6 +124,8 @@ class _RegisterPageState extends State<RegisterPage> {
       // 4️⃣ Simpan ke Firestore
       await _firestore.collection('students').doc(userId).set({
         'nim': userId,
+        'name': _nameController.text.trim(),
+        'prodi': _prodiController.text.trim(),
         'face_token': _detectedFaceToken,
         'registration_date': FieldValue.serverTimestamp(),
       });
@@ -129,6 +134,8 @@ class _RegisterPageState extends State<RegisterPage> {
         const SnackBar(content: Text('Mahasiswa berhasil didaftarkan!')),
       );
 
+      _nameController.clear();
+      _prodiController.clear();
       _nimController.clear();
       setState(() {
         _imageFile = null;
@@ -146,6 +153,9 @@ class _RegisterPageState extends State<RegisterPage> {
   @override
   void dispose() {
     _nimController.dispose();
+    _nameController.dispose();
+    _prodiController.dispose();
+
     super.dispose();
   }
 
@@ -182,6 +192,9 @@ class _RegisterPageState extends State<RegisterPage> {
                         children: [
                           Image.file(_imageFile!, fit: BoxFit.cover),
                           if (_detectedFaceToken != null)
+                            // Anda bisa menambahkan overlay untuk menunjukkan wajah terdeteksi
+                            // Ini adalah placeholder, deteksi wajah sebenarnya dari API tidak mengembalikan koordinat
+                            // Anda perlu memparsing 'face_rectangle' dari respons detect jika ingin menggambar kotak
                             Positioned.fill(
                               child: CustomPaint(
                                 painter: FaceDetectionPainter(
@@ -220,10 +233,11 @@ class _RegisterPageState extends State<RegisterPage> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Wajah terdeteksi: Posisikan wajah di tengah kamera dan pastikan pencahayaan cukup.',
+                'Wajah terdeteksi: Posisikan wajah di tengah lingkaran dan pastikan pencahayaan cukup.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
+
               const SizedBox(height: 20),
               TextFormField(
                 controller: _nimController,
@@ -242,6 +256,37 @@ class _RegisterPageState extends State<RegisterPage> {
                   return null;
                 },
               ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Nama Lengkap',
+                  hintText: 'Masukkan nama lengkap Anda',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Nama tidak boleh kosong';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _prodiController,
+                decoration: const InputDecoration(
+                  labelText: 'Program Studi',
+                  hintText: 'Masukkan program studi',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Program studi tidak boleh kosong';
+                  }
+                  return null;
+                },
+              ),
+
               const SizedBox(height: 24),
               ElevatedButton(
                 onPressed: _isLoading ? null : _registerStudent,
@@ -251,7 +296,14 @@ class _RegisterPageState extends State<RegisterPage> {
                   foregroundColor: Colors.white,
                 ),
                 child: _isLoading
-                    ? const CircularProgressIndicator(color: Colors.white)
+                    ? const SizedBox(
+                        height: 24,
+                        width: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
                     : const Text('Daftar'),
               ),
             ],

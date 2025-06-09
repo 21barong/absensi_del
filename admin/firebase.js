@@ -1,19 +1,27 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js";
+import {
+  getAuth,
+  signInWithEmailAndPassword
+} from "https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js";
 import {
   getFirestore,
   collection,
   getDocs,
   query,
   where,
-  orderBy
+  orderBy,
+  addDoc,
+  deleteDoc,
+  updateDoc,
+  doc
 } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js";
 
+// ✅ Perbaiki konfigurasi firebase (cek kembali authDomain dan storageBucket)
 const firebaseConfig = {
   apiKey: "AIzaSyARyvqlzLQIIvOpiTdHyisxIuEoO24qYbs",
-  authDomain: "absensi-del.firebaseapp.com",
+  authDomain: "absensi-del.firebaseapp.com", // pastikan ini sama dengan di console.firebase.google.com
   projectId: "absensi-del",
-  storageBucket: "absensi-del.firebasestorage.app",
+  storageBucket: "absensi-del.appspot.com", // ✅ diperbaiki (harus pakai .appspot.com)
   messagingSenderId: "586457273274",
   appId: "1:586457273274:web:e8528908675393dbb10383",
   measurementId: "G-EQV2YKR7CE"
@@ -23,7 +31,18 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Ambil data absensi berdasarkan NIM (digunakan untuk student-specific view)
+// ✅ Fungsi login (tambahkan pengecekan error)
+async function loginWithEmail(email, password) {
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    return userCredential.user;
+  } catch (error) {
+    console.error("Login failed:", error.message);
+    throw error;
+  }
+}
+
+// ✅ Ambil absensi berdasarkan NIM
 async function getAttendanceByNim(nim) {
   if (!nim) return [];
 
@@ -38,7 +57,7 @@ async function getAttendanceByNim(nim) {
   return results;
 }
 
-// Ambil semua data mahasiswa
+// ✅ Ambil data semua mahasiswa
 async function getStudents() {
   const studentsRef = collection(db, "students");
   const q = query(studentsRef, orderBy("registration_date", "desc"));
@@ -51,7 +70,7 @@ async function getStudents() {
   return students;
 }
 
-// Ambil semua data absensi dari seluruh mahasiswa
+// ✅ Ambil semua data absensi
 async function getAllAttendance() {
   const attendanceRef = collection(db, "attendance");
   const snapshot = await getDocs(attendanceRef);
@@ -66,9 +85,17 @@ async function getAllAttendance() {
 export {
   auth,
   signInWithEmailAndPassword,
+  loginWithEmail, // fungsi tambahan yang aman
   db,
   collection,
   getDocs,
+  addDoc,
+  deleteDoc,
+  updateDoc,
+  doc,
+  query,
+  orderBy,
+  where,
   getStudents,
   getAttendanceByNim,
   getAllAttendance

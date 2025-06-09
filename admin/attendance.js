@@ -1,4 +1,3 @@
-// attendance.js
 import { getStudents, getAttendanceByNim } from './firebase.js';
 
 let table;
@@ -14,7 +13,7 @@ window.onload = async () => {
     studentMap[student.nim] = student;
     const option = document.createElement("option");
     option.value = student.nim;
-    option.textContent = student.name;
+    option.textContent = student.nim;
     studentSelect.appendChild(option);
   }
 
@@ -23,18 +22,14 @@ window.onload = async () => {
     logs.forEach(log => {
       allAttendance.push({
         nim: student.nim,
-        name: student.name,
-        program: student.program || "Unknown",
         type: log.type,
-        timestamp: log.timestamp.toDate()
+        timestamp: log.timestamp?.toDate?.() || new Date() // fallback jika null
       });
     });
   }
 
-  // Render table
   renderTable(allAttendance);
 
-  // Filters
   document.getElementById("filterDate").addEventListener("change", () => {
     table.draw();
   });
@@ -52,12 +47,12 @@ window.onload = async () => {
 
 function renderTable(data) {
   const tbody = document.getElementById("attendanceBody");
-  data.forEach((row, idx) => {
+  tbody.innerHTML = ''; // Bersihkan sebelum render
+
+  data.forEach((row) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${row.nim}</td>
-      <td>${row.name}</td>
-      <td>${row.program}</td>
       <td>${row.type}</td>
       <td>${row.timestamp.toLocaleString()}</td>
       <td><button class="btn btn-sm btn-outline-danger">Delete</button></td>
@@ -66,9 +61,9 @@ function renderTable(data) {
   });
 
   table = new DataTable('#attendanceTable', {
-    order: [[4, 'desc']],
+    order: [[2, 'desc']],
     columnDefs: [
-      { targets: 5, orderable: false }
+      { targets: 3, orderable: false }
     ]
   });
 
@@ -76,7 +71,7 @@ function renderTable(data) {
     const dateFilter = document.getElementById("filterDate").value;
     const studentFilter = document.getElementById("filterStudent").value;
 
-    const rowDate = new Date(rowData[4]).toISOString().slice(0, 10);
+    const rowDate = new Date(rowData[2]).toISOString().slice(0, 10);
     const rowNim = rowData[0];
 
     const dateMatch = !dateFilter || rowDate === dateFilter;
